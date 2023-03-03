@@ -5,6 +5,7 @@ import 'package:flutter_gpu_filters_interface/flutter_gpu_filters_interface.dart
 import 'package:flutter_gpu_video_filters/flutter_gpu_video_filters.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:video_player/video_player.dart';
 
 class PreviewPage extends StatefulWidget {
   const PreviewPage({Key? key}) : super(key: key);
@@ -19,12 +20,13 @@ class _PreviewPageState extends State<PreviewPage> {
   late GPUFilterConfiguration configuration;
   bool previewParamsReady = false;
   static const _assetPath = 'assets/demo.mp4';
-  late final File pickedFile;
+  late File pickedFile;
+  File? secondFile;
 
   @override
   void initState() {
     super.initState();
-    configuration = GPUGrayScaleConfiguration();
+    configuration = GPUBrightnessConfiguration();
     _prepare().whenComplete(() => setState(() {}));
   }
 
@@ -49,26 +51,28 @@ class _PreviewPageState extends State<PreviewPage> {
       body: Padding(
         padding: const EdgeInsets.all(8.0),
         child: Container(
-          child: previewParamsReady
-              ? GPUVideoNativePreview(
-                  params: previewParams,
-                  configuration: configuration,
-                  onViewCreated: (controller, outputSizeStream) async {
-                    final picker = ImagePicker();
-                    controller = controller;
-                    final v =
-                        await picker.pickVideo(source: ImageSource.gallery);
-                    pickedFile = File(v!.path);
-                    controller.setVideoFile(pickedFile);
-                    // controller.setVideoAsset(_assetPath);
-                    await for (final _ in outputSizeStream) {
-                      setState(() {});
-                    }
-                  },
-                )
-              : const Center(
-                  child: CircularProgressIndicator(),
-                ),
+          child: secondFile != null
+              ? A(f: secondFile!)
+              : previewParamsReady
+                  ? GPUVideoNativePreview(
+                      params: previewParams,
+                      configuration: configuration,
+                      onViewCreated: (controller, outputSizeStream) async {
+                        final picker = ImagePicker();
+                        controller = controller;
+                        final v =
+                            await picker.pickVideo(source: ImageSource.gallery);
+                        pickedFile = File(v!.path);
+                        controller.setVideoFile(pickedFile);
+                        // controller.setVideoAsset(_assetPath);
+                        await for (final _ in outputSizeStream) {
+                          setState(() {});
+                        }
+                      },
+                    )
+                  : const Center(
+                      child: CircularProgressIndicator(),
+                    ),
         ),
       ),
       floatingActionButton: FloatingActionButton(
@@ -77,6 +81,7 @@ class _PreviewPageState extends State<PreviewPage> {
 
           setState(() {});
           await e();
+          setState(() {});
         },
         child: const Icon(Icons.save),
       ),
@@ -104,15 +109,57 @@ class _PreviewPageState extends State<PreviewPage> {
   }
 
   Future<void> e() async {
-    const asset = 'assets/demo.mp4';
     final temp = await getTemporaryDirectory();
-    final inputSource = AssetInputSource(asset);
+    final inputSource = FileInputSource(pickedFile);
     final output = File('${temp.path}/result.mp4');
-    final configuration = GPUGrayScaleConfiguration();
+    final configuration = GPUHALDLookupTableConfiguration()
+      ..lutImageAsset = 'assets/goal.png';
+    await configuration.prepare();
     final processStream =
         configuration.exportVideoFile(VideoExportConfig(inputSource, output));
     await for (final progress in processStream) {
       debugPrint('Exporting file ${(progress * 100).toInt()}%');
     }
+    secondFile = output;
+  }
+}
+
+class A extends StatefulWidget {
+  final File f;
+
+  const A({
+    Key? key,
+    required this.f,
+  }) : super(key: key);
+
+  @override
+  State<A> createState() => _AState();
+}
+
+class _AState extends State<A> {
+  late final VideoPlayerController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = VideoPlayerController.file(widget.f)
+      ..initialize().then((value) => setState(() {}))
+      ..play()
+      ..setLooping(true);
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+    controller.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return controller.value.isInitialized
+        ? AspectRatio(
+            aspectRatio: controller.value.aspectRatio,
+            child: VideoPlayer(controller))
+        : const SizedBox();
   }
 }
